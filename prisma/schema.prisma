@@ -1,0 +1,79 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// A company that exhibits at MMI Connect events. Master/identity data only —
+/// attributes here are true of the company regardless of which show it is
+/// attending, so they live separately from per-show participation details.
+model Exhibitor {
+  /// MMI's own customer id - used as the natural primary key so re-scrapes upsert instead of duplicating.
+  /// (Verified unique across all 814 source records; `userId` below is not -
+  /// see the comment on that field.)
+  id            Int      @id
+  /// MMI's internal account id for this exhibitor. NOT unique: a handful of
+  /// real exhibitors in the source data reuse the same userId across two
+  /// separate customer.id registrations (one per co-located show), so this
+  /// is indexed but intentionally not a unique constraint.
+  userId        String   @db.Uuid
+  companyName   String
+  country       String?
+  squareLogoUrl String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  participations ExhibitorParticipation[]
+
+  @@index([userId])
+  @@map("exhibitors")
+}
+
+/// A trade show / exhibition event (e.g. "electronica India - Bangalore").
+/// Kept separate from Exhibitor so the show name and dates are stored once,
+/// not repeated on every exhibitor row that attends it.
+model Show {
+  /// MMI's own show id - natural primary key.
+  id        Int      @id
+  showName  String
+  startDate DateTime
+  endDate   DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participations ExhibitorParticipation[]
+
+  @@map("shows")
+}
+
+/// Junction table: one row per (exhibitor, show) pairing. Booth/hall number,
+/// exhibitor type and sponsorship tier depend on BOTH the exhibitor and the
+/// show together, not on either alone, so they belong here rather than on
+/// Exhibitor or Show directly - this is what keeps the schema in 3NF.
+model ExhibitorParticipation {
+  id            Int      @id @default(autoincrement())
+  exhibitorId   Int
+  showId        Int
+  /// The MMI catalogue/group code this record was scraped from, e.g. "ep-blr-2026".
+  groupCode     String
+  boothNo       String?
+  hallNo        String?
+  exhibitorType String?
+  sponsorship   String?
+  scrapedAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  exhibitor Exhibitor @relation(fields: [exhibitorId], references: [id], onDelete: Cascade)
+  show      Show      @relation(fields: [showId], references: [id], onDelete: Cascade)
+
+  @@unique([exhibitorId, showId])
+  @@index([showId])
+  @@index([groupCode])
+  @@map("exhibitor_participations")
+}
